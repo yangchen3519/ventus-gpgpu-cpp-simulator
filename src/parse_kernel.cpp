@@ -1,14 +1,111 @@
 #include "context_model.hpp"
 #include "ventus_cyclesim.h"
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 using meta_data_t = ventus_kernel_metadata_t;
+
+namespace {
+
+uint64_t divRoundUp(uint64_t value, uint64_t divisor) {
+    if (divisor == 0) {
+        throw std::runtime_error("invalid zero divisor for L1 partition calculation");
+    }
+    return value / divisor + (value % divisor != 0);
+}
+
+uint64_t getCyclesimParam(ventus_cyclesim_param_id_t param) {
+    uint64_t value = 0;
+    if (ventus_cyclesim_get_param_u64(param, &value) != 0 || value == 0) {
+        throw std::runtime_error("failed to query cyclesim L1 partition parameter");
+    }
+    return value;
+}
+
+uint64_t chooseL1dBankCount(uint64_t maxL1dBanks, uint64_t minL1dBanks,
+                            uint64_t l1dBankGranularity, uint64_t l1dMaxSets) {
+    static constexpr uint64_t kLegalL1dBankCounts[] = {64, 128, 256, 512, 1024};
+    uint64_t best = 0;
+    for (uint64_t candidate : kLegalL1dBankCounts) {
+        if (candidate < minL1dBanks || candidate > maxL1dBanks) {
+            continue;
+        }
+        if (candidate % l1dBankGranularity != 0) {
+            continue;
+        }
+        if (candidate / l1dBankGranularity > l1dMaxSets) {
+            continue;
+        }
+        best = std::max(best, candidate);
+    }
+    return best;
+}
+
+void assignL1PartitionMetadata(meta_data_t& metadata) {
+    const uint64_t bankBytes =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_PARTITION_BANK_BYTES);
+    const uint64_t totalBanks =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_PARTITION_BANK_COUNT);
+    const uint64_t minL1dBanks =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_MIN_L1D_BANKS);
+    const uint64_t l1dBankGranularity =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1D_BANK_GRANULARITY);
+    const uint64_t l1dMaxSets =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1D_MAX_SETS);
+    const uint64_t maxWgSlotPerSm =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_MAX_CTA_PER_SM);
+    const uint64_t totalWarpsPerSm =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_NUM_WARP_PER_SM);
+    const uint64_t totalSgpr =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_TOTAL_SGPR);
+    const uint64_t totalVgpr =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_TOTAL_VGPR);
+
+    metadata.ldsBankCount = divRoundUp(metadata.ldsSize, bankBytes);
+    if (metadata.ldsBankCount > totalBanks - minL1dBanks) {
+        throw std::runtime_error("kernel LDS exceeds unified L1 SMEM capacity");
+    }
+
+    uint64_t residentWgPerSm = maxWgSlotPerSm;
+    if (metadata.wg_size != 0) {
+        residentWgPerSm = std::min(residentWgPerSm, totalWarpsPerSm / metadata.wg_size);
+    }
+
+    const uint64_t sgprPerWg = metadata.wg_size * metadata.sgprUsage;
+    const uint64_t vgprPerWg = metadata.wg_size * metadata.vgprUsage;
+    if (sgprPerWg != 0) {
+        residentWgPerSm = std::min(residentWgPerSm, totalSgpr / sgprPerWg);
+    }
+    if (vgprPerWg != 0) {
+        residentWgPerSm = std::min(residentWgPerSm, totalVgpr / vgprPerWg);
+    }
+
+    while (residentWgPerSm > 0) {
+        const uint64_t requiredSmemBanks =
+            divRoundUp(residentWgPerSm * metadata.ldsSize, bankBytes);
+        if (requiredSmemBanks <= totalBanks) {
+            const uint64_t l1dBanks =
+                chooseL1dBankCount(totalBanks - requiredSmemBanks, minL1dBanks,
+                                   l1dBankGranularity, l1dMaxSets);
+            if (l1dBanks != 0) {
+                metadata.smemBankCountPerSm = totalBanks - l1dBanks;
+                return;
+            }
+        }
+        residentWgPerSm--;
+    }
+
+    throw std::runtime_error("failed to choose unified L1 partition for kernel metadata");
+}
+
+} // namespace
 
 // Helpers
 bool isHexCharacter(char c) {
@@ -46,6 +143,7 @@ void assignMetadata(const std::vector<uint64_t>& rawdata, meta_data_t& metadata)
     metadata.sgprUsage = rawdata[index++];
     metadata.vgprUsage = rawdata[index++];
     metadata.pdsBaseAddr = rawdata[index++];
+    assignL1PartitionMetadata(metadata);
 
     metadata.num_buffer = rawdata[index++];
 

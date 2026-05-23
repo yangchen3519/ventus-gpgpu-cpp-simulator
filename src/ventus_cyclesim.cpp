@@ -39,6 +39,27 @@ int ventus_cyclesim_get_param_u64(ventus_cyclesim_param_id_t param, uint64_t* va
     case VENTUS_CYCLESIM_PARAM_LOCAL_MEM_SIZE:
         *value = hw_lds_size;
         return 0;
+    case VENTUS_CYCLESIM_PARAM_TOTAL_SGPR:
+        *value = hw_num_warp * 256;
+        return 0;
+    case VENTUS_CYCLESIM_PARAM_TOTAL_VGPR:
+        *value = hw_num_warp * 128;
+        return 0;
+    case VENTUS_CYCLESIM_PARAM_L1_PARTITION_BANK_BYTES:
+        *value = 128;
+        return 0;
+    case VENTUS_CYCLESIM_PARAM_L1_PARTITION_BANK_COUNT:
+        *value = hw_lds_size / 128 + 64;
+        return 0;
+    case VENTUS_CYCLESIM_PARAM_L1_MIN_L1D_BANKS:
+        *value = 64;
+        return 0;
+    case VENTUS_CYCLESIM_PARAM_L1D_BANK_GRANULARITY:
+        *value = 2;
+        return 0;
+    case VENTUS_CYCLESIM_PARAM_L1D_MAX_SETS:
+        *value = 512;
+        return 0;
     default:
         return -1;
     }
