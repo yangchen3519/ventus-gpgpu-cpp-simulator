@@ -29,18 +29,18 @@ uint64_t getCyclesimParam(ventus_cyclesim_param_id_t param) {
     return value;
 }
 
-uint64_t chooseL1dBankCount(uint64_t maxL1dBanks, uint64_t minL1dBanks,
-                            uint64_t l1dBankGranularity, uint64_t l1dMaxSets) {
-    static constexpr uint64_t kLegalL1dBankCounts[] = {64, 128, 256, 512, 1024};
+uint64_t chooseL1dSlotCount(uint64_t maxL1dSlots, uint64_t minL1dSlots,
+                            uint64_t l1dSlotGranularity, uint64_t l1dMaxSets) {
+    static constexpr uint64_t kLegalL1dSlotCounts[] = {64, 128, 256, 512, 1024};
     uint64_t best = 0;
-    for (uint64_t candidate : kLegalL1dBankCounts) {
-        if (candidate < minL1dBanks || candidate > maxL1dBanks) {
+    for (uint64_t candidate : kLegalL1dSlotCounts) {
+        if (candidate < minL1dSlots || candidate > maxL1dSlots) {
             continue;
         }
-        if (candidate % l1dBankGranularity != 0) {
+        if (candidate % l1dSlotGranularity != 0) {
             continue;
         }
-        if (candidate / l1dBankGranularity > l1dMaxSets) {
+        if (candidate / l1dSlotGranularity > l1dMaxSets) {
             continue;
         }
         best = std::max(best, candidate);
@@ -49,14 +49,14 @@ uint64_t chooseL1dBankCount(uint64_t maxL1dBanks, uint64_t minL1dBanks,
 }
 
 void assignL1PartitionMetadata(meta_data_t& metadata) {
-    const uint64_t bankBytes =
-        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_PARTITION_BANK_BYTES);
-    const uint64_t totalBanks =
-        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_PARTITION_BANK_COUNT);
-    const uint64_t minL1dBanks =
-        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_MIN_L1D_BANKS);
-    const uint64_t l1dBankGranularity =
-        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1D_BANK_GRANULARITY);
+    const uint64_t slotBytes =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_PARTITION_SLOT_BYTES);
+    const uint64_t totalSlots =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_PARTITION_SLOT_COUNT);
+    const uint64_t minL1dSlots =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1_MIN_L1D_SLOTS);
+    const uint64_t l1dSlotGranularity =
+        getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1D_SLOT_GRANULARITY);
     const uint64_t l1dMaxSets =
         getCyclesimParam(VENTUS_CYCLESIM_PARAM_L1D_MAX_SETS);
     const uint64_t maxWgSlotPerSm =
@@ -68,8 +68,8 @@ void assignL1PartitionMetadata(meta_data_t& metadata) {
     const uint64_t totalVgpr =
         getCyclesimParam(VENTUS_CYCLESIM_PARAM_TOTAL_VGPR);
 
-    metadata.ldsBankCount = divRoundUp(metadata.ldsSize, bankBytes);
-    if (metadata.ldsBankCount > totalBanks - minL1dBanks) {
+    metadata.ldsSlotCountPerWg = divRoundUp(metadata.ldsSize, slotBytes);
+    if (metadata.ldsSlotCountPerWg > totalSlots - minL1dSlots) {
         throw std::runtime_error("kernel LDS exceeds unified L1 SMEM capacity");
     }
 
@@ -88,14 +88,14 @@ void assignL1PartitionMetadata(meta_data_t& metadata) {
     }
 
     while (residentWgPerSm > 0) {
-        const uint64_t requiredSmemBanks =
-            divRoundUp(residentWgPerSm * metadata.ldsSize, bankBytes);
-        if (requiredSmemBanks <= totalBanks) {
-            const uint64_t l1dBanks =
-                chooseL1dBankCount(totalBanks - requiredSmemBanks, minL1dBanks,
-                                   l1dBankGranularity, l1dMaxSets);
-            if (l1dBanks != 0) {
-                metadata.smemBankCountPerSm = totalBanks - l1dBanks;
+        const uint64_t requiredSmemSlots =
+            divRoundUp(residentWgPerSm * metadata.ldsSize, slotBytes);
+        if (requiredSmemSlots <= totalSlots) {
+            const uint64_t l1dSlots =
+                chooseL1dSlotCount(totalSlots - requiredSmemSlots, minL1dSlots,
+                                   l1dSlotGranularity, l1dMaxSets);
+            if (l1dSlots != 0) {
+                metadata.smemSlotCountPerSm = totalSlots - l1dSlots;
                 return;
             }
         }

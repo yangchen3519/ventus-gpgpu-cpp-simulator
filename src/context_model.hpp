@@ -36,8 +36,8 @@ public:
     unsigned get_num_warp_per_cta() const { return m_metadata.wg_size; }
     unsigned get_num_thread_per_warp() const { return m_metadata.wf_size; }
     unsigned get_ldsSize_per_cta() const { return m_metadata.ldsSize; }
-    unsigned get_ldsBankCount_per_cta() const { return m_metadata.ldsBankCount; }
-    unsigned get_smemBankCount_per_sm() const { return m_metadata.smemBankCountPerSm; }
+    unsigned get_ldsSlotCount_per_cta() const { return m_metadata.ldsSlotCountPerWg; }
+    unsigned get_smemSlotCount_per_sm() const { return m_metadata.smemSlotCountPerSm; }
     unsigned get_pdsSize_per_thread() const { return m_metadata.pdsSize; }
     uint64_t get_pdsBaseAddr() const { return m_metadata.pdsBaseAddr; }
     uint64_t get_metadata_baseaddr() const { return m_metadata.metaDataBaseAddr; }
